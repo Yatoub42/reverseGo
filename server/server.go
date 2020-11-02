@@ -1,69 +1,90 @@
-// Package main is the entry-point for the go-sockets server sub-project.
-// The go-sockets project is available under the GPL-3.0 License in LICENSE.
 package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"log"
 	"net"
 	"os"
+	"strings"
 )
 
-// Application constants, defining host, port, and protocol.
-const (
-	connHost = "localhost"
-	connPort = "8080"
-	connType = "tcp"
-)
+const address = "127.0.0.1:666"
+const bufferSize = 9999
 
 func main() {
-	// Start the server and listen for incoming connections.
-	fmt.Println("Starting " + connType + " server on " + connHost + ":" + connPort)
-	l, err := net.Listen(connType, connHost+":"+connPort)
+
+	listener, err := net.Listen("tcp", address)
+
+	fmt.Printf("En écoute sur: " + address + "\n")
+
 	if err != nil {
-		fmt.Println("Error listening:", err.Error())
+		log.Fatal("Problème sur l'écoute: " + address)
 		os.Exit(1)
 	}
-	// Close the listener when the application closes.
-	defer l.Close()
 
-	// run loop forever, until exit.
+	var conn net.Conn
+	var _ net.Conn
+
+	conn, _ = listener.Accept()
+
+	fmt.Println("Session ouverte depuis: " + conn.RemoteAddr().String())
+
 	for {
-		// Listen for an incoming connection.
-		c, err := l.Accept()
-		if err != nil {
-			fmt.Println("Error connecting:", err.Error())
-			return
+
+		var in *bufio.Reader = bufio.NewReader(os.Stdin)
+
+		var command string
+		var _ error
+
+		fmt.Print("> ")
+
+		command, _ = in.ReadString('\n')
+
+		command = strings.Replace(command, "\n", "", -1)
+
+		if len(command) > 0 {
+
+			/**
+			 * Send the command to the client
+			 */
+			executeCommand(command, conn)
+
+			HandleConnection(conn)
 		}
-		fmt.Println("Client connected.")
-
-		// Print client connection address.
-		fmt.Println("Client " + c.RemoteAddr().String() + " connected.")
-
-		// Handle connections concurrently in a new goroutine.
-		go handleConnection(c)
 	}
+	defer conn.Close()
 }
 
-// handleConnection handles logic for a single connection request.
-func handleConnection(conn net.Conn) {
-	// Buffer client input until a newline.
-	buffer, err := bufio.NewReader(conn).ReadBytes('\n')
+func executeCommand(command string, client net.Conn) {
 
-	// Close left clients.
+	client.Write([]byte(command))
+}
+
+func HandleConnection(conn net.Conn) {
+
+	var data []byte
+
+	buffer := make([]byte, bufferSize)
+
+	/*
+	 * Read the recv data into the buffer
+	 */
+	n, err := conn.Read(buffer)
+
 	if err != nil {
-		fmt.Println("Client left.")
-		conn.Close()
-		return
+		os.Exit(1)
 	}
 
-	// Print response message, stripping newline character.
-	log.Println("Client message:", string(buffer[:len(buffer)-1]))
+	/**
+	 * Remove non-used bytes
+	 */
+	buffer = bytes.Trim(buffer[:n], "\x00")
 
-	// Send response message to the client.
-	conn.Write(buffer)
+	data = append(data, buffer...)
 
-	// Restart the process.
-	handleConnection(conn)
+	fmt.Println(string(data))
+
+	data = make([]byte, 0)
 }
